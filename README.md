@@ -1,5 +1,8 @@
 # Obsidian auto-capture
 
+[![CI](https://github.com/EliasMarine/obsidian-auto-capture/actions/workflows/ci.yml/badge.svg)](https://github.com/EliasMarine/obsidian-auto-capture/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Crawl an entire website and save the pages into an [Obsidian](https://obsidian.md) vault as
 Markdown — with links between the captured pages rewritten as `[[wikilinks]]`, so the result
 is a connected set of notes instead of a folder of orphans.
@@ -42,6 +45,20 @@ npm start
 Open <http://127.0.0.1:4571>. The server binds to localhost only.
 
 ### Docker
+
+Use the published image:
+
+```bash
+curl -O https://raw.githubusercontent.com/EliasMarine/obsidian-auto-capture/main/docker-compose.yml
+curl -o .env https://raw.githubusercontent.com/EliasMarine/obsidian-auto-capture/main/.env.example
+# edit .env to point OBSIDIAN_VAULT at your vault, then:
+docker compose up -d
+```
+
+Images are published to `ghcr.io/eliasmarine/obsidian-auto-capture` for `linux/amd64`
+and `linux/arm64`.
+
+Or build it yourself from a clone:
 
 ```bash
 cp .env.example .env      # point OBSIDIAN_VAULT at your vault folder
@@ -139,6 +156,10 @@ npm test
 Covers URL→path mapping, filename sanitising, the write-outside-destination guard, YAML
 escaping, scope narrowing, the link-list heuristic, and wikilink rewriting.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and pull requests welcome.
+
 ## License
 
-MIT
+[MIT](LICENSE)
