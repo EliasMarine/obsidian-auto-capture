@@ -1,0 +1,13 @@
+node_modules/
+
+# Runtime state — created on first run, holds machine-specific paths
+config.json
+docker-config/
+.env
+
+# Local design exploration and backups
+mockups/
+*.bak
+screenshots/*.tmp.png
+
+.DS_Store

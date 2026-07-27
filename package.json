@@ -1,0 +1,15 @@
+{
+  "name": "obsidian-auto-capture",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "defuddle": "^0.19.2",
+    "linkedom": "^0.18.13",
+    "playwright-core": "^1.62.0"
+  }
+}

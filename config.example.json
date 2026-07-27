@@ -1,0 +1,9 @@
+{
+  "startUrl": "",
+  "dest": "/vault/raw",
+  "scope": "/",
+  "cap": 500,
+  "includeImages": false,
+  "mode": "skip",
+  "wikilinks": true
+}

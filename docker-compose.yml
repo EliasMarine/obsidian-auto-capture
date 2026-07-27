@@ -1,0 +1,17 @@
+services:
+  obsidian-auto-capture:
+    build: .
+    container_name: obsidian-auto-capture
+    # Comes back whenever Docker Desktop starts, and after a crash.
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4571:4571"
+    volumes:
+      # Mount the VAULT ROOT, not the raw folder — the app walks up looking for
+      # .obsidian to confirm the destination really is inside a vault.
+      # Set OBSIDIAN_VAULT in .env (see .env.example).
+      - "${OBSIDIAN_VAULT:?set OBSIDIAN_VAULT in .env to your vault folder}:/vault"
+      # Settings survive rebuilds instead of living inside the image.
+      - "./docker-config:/config"
+    # Chromium crashes on Docker's default 64MB /dev/shm.
+    shm_size: "1gb"

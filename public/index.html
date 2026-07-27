@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Obsidian auto-capture</title>
+    <style>
+      :root {
+        --bg: #16191d;
+        --surface: #1e2227;
+        --raised: #272c33;
+        --sunken: #191d21;
+        --border: #2f353c;
+        --border-strong: #434a53;
+        --text: #e3e7ec;
+        --muted: #98a1ac;
+        --blue: #3b82f6;
+        --blue-dark: #2563eb;
+        --green-fg: #6ee7a5;
+        --amber-bg: #3a2e12;
+        --amber-fg: #e0b057;
+        --red-bg: #3b2020;
+        --red-fg: #e8807c;
+        --mono: ui-monospace, "SF Mono", Menlo, monospace;
+        color-scheme: dark;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 980px; margin: 0 auto; padding: 36px 24px 80px; }
+
+      header h1 { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+      header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+      .steps {
+        display: flex; gap: 24px; margin: 20px 0 0; font-size: 13px; color: var(--muted);
+        border-bottom: 1px solid var(--border); padding-bottom: 12px;
+      }
+      .steps > span { display: inline-flex; align-items: center; gap: 7px; line-height: 1; }
+      .steps > span[data-on] { color: var(--text); font-weight: 600; }
+      .steps .n {
+        display: inline-flex; width: 18px; height: 18px; border-radius: 50%;
+        border: 1px solid var(--border-strong); align-items: center; justify-content: center;
+        font-size: 11px; font-weight: 400; flex: none;
+      }
+      .steps > span[data-on] .n { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+      .offline {
+        margin: 16px 0 0; padding: 9px 12px; border-radius: 6px; font-size: 13px;
+        color: var(--red-fg); background: var(--red-bg); border: 1px solid #55302f;
+      }
+      .offline code { font: 12px var(--mono); }
+
+      section[hidden], p[hidden], .card[hidden] { display: none; }
+      .card {
+        background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+        padding: 20px; margin-top: 20px;
+      }
+      .card h2 { font-size: 14px; font-weight: 600; margin: 0 0 16px; }
+
+      label.field { display: block; margin-bottom: 16px; }
+      label.field > span { display: block; font-size: 13px; font-weight: 500; margin-bottom: 5px; }
+      .hint, label.field small { display: block; font-size: 12px; color: var(--muted); margin-top: 4px; }
+      input[type="text"], input[type="url"], input[type="number"], select {
+        width: 100%; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 6px;
+        font: 13px var(--mono); color: var(--text); background: var(--sunken);
+      }
+      select { font-family: inherit; font-size: 13px; }
+      input:focus, select:focus, button:focus-visible, a:focus-visible {
+        outline: 2px solid var(--blue); outline-offset: -1px; border-color: var(--blue);
+      }
+      a:focus-visible, button.twist:focus-visible { outline-offset: 2px; }
+
+      .row { display: flex; gap: 16px; flex-wrap: wrap; }
+      .row > label.field { flex: 1 1 200px; margin-bottom: 0; }
+      .checks { display: flex; gap: 28px; flex-wrap: wrap; }
+      .check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; cursor: pointer; }
+      .check input { accent-color: var(--blue); margin-top: 2px; flex: none; }
+      .check small { display: block; color: var(--muted); font-size: 12px; margin-top: 1px; }
+
+      button {
+        font: inherit; font-size: 13px; font-weight: 500; padding: 8px 16px; border-radius: 6px;
+        cursor: pointer; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
+      }
+      button:hover:not(:disabled) { background: var(--raised); }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+      button.primary:hover:not(:disabled) { background: var(--blue-dark); }
+      .actions { margin-top: 18px; display: flex; gap: 10px; justify-content: flex-end; }
+
+      .msg { margin-top: 14px; font-size: 13px; padding: 9px 12px; border-radius: 6px; }
+      .msg.err { color: var(--red-fg); background: var(--red-bg); }
+
+      .console {
+        font: 12px/1.7 var(--mono); color: var(--muted); margin-top: 16px; max-height: 170px;
+        overflow-y: auto; border-top: 1px solid var(--border); padding-top: 12px;
+      }
+      .console div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+      /* ---- review table ---- */
+      .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+      .toolbar input { flex: 1; }
+      .toolbar button { padding: 7px 12px; font-size: 12.5px; }
+
+      .tablewrap { max-height: 62vh; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+      /* Fixed layout so the URL column keeps its width and ellipsises, instead of
+         collapsing to fit the longest page name. */
+      table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+      thead th {
+        position: sticky; top: 0; z-index: 1; background: var(--sunken);
+        text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase;
+        letter-spacing: 0.04em; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--border);
+      }
+      td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+      tbody tr:last-child td { border-bottom: 0; }
+      td.chk, th.chk { width: 34px; }
+      td.chk input { accent-color: var(--blue); }
+      th.right, td.status { text-align: right; }
+      td.status { width: 110px; white-space: nowrap; }
+
+      tr.group td { background: var(--raised); font-weight: 600; font-size: 12.5px; padding: 6px 10px; }
+      tr.group .count { color: var(--muted); font-weight: 400; margin-left: 8px; }
+      .twist {
+        border: 0; background: none; padding: 0; margin-right: 7px; cursor: pointer; color: var(--muted);
+        font-size: 10px; line-height: 1; width: 12px; display: inline-block; text-align: left;
+        transform: rotate(90deg); transform-origin: 35% 50%; transition: transform 120ms ease;
+      }
+      tr.group.collapsed .twist { transform: rotate(0deg); }
+      tr.group.collapsed td { color: var(--muted); }
+
+      .page-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      td.url { font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      td.url a { color: var(--muted); text-decoration: none; }
+      td.url a:hover { color: var(--blue); text-decoration: underline; }
+      .tag {
+        display: inline-block; font-size: 11px; font-weight: 500; border-radius: 4px; padding: 1px 7px;
+        background: var(--amber-bg); color: var(--amber-fg);
+      }
+      tr[data-excluded] { opacity: 0.4; }
+      tr[data-excluded] .page-name { font-weight: 400; }
+
+      .list-end {
+        margin: 12px 0 0; color: var(--muted); font-size: 11.5px; text-align: center;
+        text-transform: uppercase; letter-spacing: 0.07em;
+      }
+
+      .tablefoot {
+        display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap;
+        border-top: 1px solid var(--border); margin: 16px -20px -20px; padding: 14px 20px;
+        background: var(--sunken); border-radius: 0 0 8px 8px;
+      }
+      .tablefoot .sum { font-size: 13px; }
+      .tablefoot .sum b { font-weight: 600; }
+      .tablefoot .sum span { color: var(--muted); margin-left: 10px; }
+      .tablefoot .btns { display: flex; gap: 10px; }
+
+      /* ---- capture ---- */
+      .counters { display: flex; gap: 28px; flex-wrap: wrap; margin-bottom: 16px; }
+      .counters div { line-height: 1.25; }
+      .counters b { display: block; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+      .counters span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+      .counters .c-saved b { color: var(--green-fg); }
+      .counters .c-updated b { color: var(--blue); }
+      .counters .c-failed b { color: var(--red-fg); }
+
+      .advice {
+        margin: 0 0 16px; padding: 12px 14px; border-radius: 6px; font-size: 13px; line-height: 1.55;
+        color: var(--text); background: var(--amber-bg); border: 1px solid #55441c;
+      }
+      .advice code { font: 12px var(--mono); color: var(--amber-fg); }
+
+      .results { max-height: 48vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
+      .results .r { display: flex; gap: 12px; padding: 7px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+      .results .r:last-child { border-bottom: 0; }
+      .results .pill {
+        flex: none; width: 66px; font-size: 10.5px; text-transform: uppercase;
+        letter-spacing: 0.05em; padding-top: 3px; color: var(--muted);
+      }
+      .results .saved .pill { color: var(--green-fg); }
+      .results .updated .pill { color: var(--blue); }
+      .results .failed .pill { color: var(--red-fg); }
+      .results .what {
+        flex: 1; font: 12px var(--mono); color: var(--muted);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .results .words { flex: none; font-size: 11.5px; color: var(--muted); padding-top: 1px; }
+      .results .thin .words { color: var(--amber-fg); font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>Obsidian auto-capture</h1>
+        <p>Crawl a site, choose the pages you want, and save them to your vault as Markdown.</p>
+        <nav class="steps">
+          <span id="step-1" data-on><span class="n">1</span>Set up</span>
+          <span id="step-2"><span class="n">2</span>Review pages</span>
+          <span id="step-3"><span class="n">3</span>Capture</span>
+        </nav>
+        <p id="conn" class="offline" hidden>
+          Server not responding — run <code>npm start</code> in the Obsidian-auto-capture folder, then reload.
+        </p>
+      </header>
+
+      <main>
+        <section id="setup">
+          <div class="card">
+            <h2>Crawl settings</h2>
+            <div class="row">
+              <label class="field">
+                <span>Start URL</span>
+                <input id="startUrl" type="url" placeholder="https://example.com/docs" spellcheck="false" />
+                <small>Sitemap is used when the site has one, otherwise links are followed.</small>
+              </label>
+              <label class="field" style="flex: 0 0 220px">
+                <span>Limit to path</span>
+                <input id="scope" type="text" placeholder="/" spellcheck="false" />
+                <small>Only pages under this path.</small>
+              </label>
+            </div>
+            <label class="field" style="margin-top: 16px">
+              <span>Destination folder in your vault</span>
+              <input id="dest" type="text" spellcheck="false" />
+              <small>Must be inside a folder containing <code>.obsidian</code>. Created if it doesn't exist.</small>
+            </label>
+            <div class="row">
+              <label class="field" style="flex: 0 0 130px">
+                <span>Page limit</span>
+                <input id="cap" type="number" min="1" max="5000" value="500" />
+              </label>
+              <label class="field" style="flex: 0 0 200px">
+                <span>Pages I already have</span>
+                <select id="mode">
+                  <option value="skip">Skip them</option>
+                  <option value="update">Update if changed</option>
+                  <option value="overwrite">Overwrite always</option>
+                </select>
+              </label>
+              <div class="field" style="flex: 1 1 300px; margin-bottom: 0">
+                <span style="display: block; font-size: 13px; font-weight: 500; margin-bottom: 5px">Options</span>
+                <div class="checks">
+                  <label class="check">
+                    <input id="includeImages" type="checkbox" />
+                    <span>Include images<small>Never downloaded either way.</small></span>
+                  </label>
+                  <label class="check">
+                    <input id="wikilinks" type="checkbox" checked />
+                    <span>Link notes to each other<small>Rewrites links as [[wikilinks]].</small></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="actions">
+              <button id="cancelDiscover" hidden>Cancel</button>
+              <button id="discoverBtn" class="primary">Discover pages</button>
+            </div>
+            <div id="setupMsg"></div>
+            <div id="discoverLog" class="console" hidden></div>
+          </div>
+
+          <div class="card">
+            <h2>Just one page</h2>
+            <label class="field" style="margin-bottom: 0">
+              <span class="sr">URL</span>
+              <input id="singleUrl" type="url" placeholder="https://example.com/some-article" spellcheck="false" />
+              <small>Skips discovery entirely — captures this URL straight into the destination above.</small>
+            </label>
+            <div class="actions">
+              <button id="singleBtn">Capture this page</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="review" hidden>
+          <div class="card">
+            <h2 id="reviewTitle">Review pages</h2>
+            <div class="toolbar">
+              <input id="excludeInput" type="text" placeholder="Exclude URLs containing… (comma-separated, e.g. /tag/, /author/)" spellcheck="false" />
+              <button id="selAll">All</button>
+              <button id="selNone">None</button>
+              <button id="selSuggested">Suggested</button>
+            </div>
+            <div class="tablewrap">
+              <table>
+                <colgroup>
+                  <col style="width: 34px" />
+                  <col style="width: 38%" />
+                  <col />
+                  <col style="width: 116px" />
+                </colgroup>
+                <thead>
+                  <tr><th class="chk"></th><th>Page</th><th>URL</th><th class="right">Status</th></tr>
+                </thead>
+                <tbody id="rows"></tbody>
+              </table>
+            </div>
+            <p id="listEnd" class="list-end"></p>
+            <div class="tablefoot">
+              <div class="sum"><b id="selCount">0 pages selected</b></div>
+              <div class="btns">
+                <button id="backBtn">Back</button>
+                <button id="captureBtn" class="primary">Capture to vault</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="run" hidden>
+          <div class="card">
+            <h2>Capture</h2>
+            <div class="counters">
+              <div class="c-saved"><b id="nSaved">0</b><span>saved</span></div>
+              <div class="c-updated"><b id="nUpdated">0</b><span>updated</span></div>
+              <div><b id="nSkipped">0</b><span>already had</span></div>
+              <div class="c-failed"><b id="nFailed">0</b><span>failed</span></div>
+              <div><b id="nLeft">0</b><span>remaining</span></div>
+            </div>
+            <p id="advice" class="advice" hidden></p>
+            <div id="results" class="results"></div>
+            <div class="tablefoot">
+              <div class="sum"><b id="runStatus">Working…</b></div>
+              <div class="btns">
+                <button id="cancelRun">Stop</button>
+                <button id="retryFailed" hidden>Retry failed</button>
+                <button id="doneBtn" class="primary" hidden>Start another</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module">
+      const $ = (id) => document.getElementById(id);
+      // URLs and titles come from the crawled site, so they are untrusted input.
+      const esc = (v) =>
+        String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+      // Only ever put http(s) in an href — a crawled page must not be able to
+      // hand us a javascript: URL to render as a clickable link.
+      const webUrl = (value) => {
+        try {
+          const u = new URL(value);
+          return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null;
+        } catch {
+          return null;
+        }
+      };
+      const OFFLINE = 'Can’t reach the server. Start it with `npm start` in the Obsidian-auto-capture folder, then reload.';
+
+      const api = async (url, body) => {
+        let res;
+        try {
+          res = await fetch(url, {
+            method: body ? 'POST' : 'GET',
+            headers: { 'content-type': 'application/json' },
+            body: body ? JSON.stringify(body) : undefined,
+          });
+        } catch {
+          throw new Error(OFFLINE);
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        return data;
+      };
+
+      const state = { urls: [], queue: [], failed: [] };
+
+      function showStep(n) {
+        $('setup').hidden = n !== 1;
+        $('review').hidden = n !== 2;
+        $('run').hidden = n !== 3;
+        for (const i of [1, 2, 3]) $(`step-${i}`).toggleAttribute('data-on', i <= n);
+      }
+
+      const message = (el, text, kind) => {
+        el.innerHTML = text ? `<div class="msg ${kind}">${esc(text)}</div>` : '';
+      };
+
+      // ---- setup ----------------------------------------------------------
+      const config = await api('/api/config').catch(() => ({}));
+      $('startUrl').value = config.startUrl ?? '';
+      $('dest').value = config.dest ?? '';
+      if (config.cap) $('cap').value = config.cap;
+      $('includeImages').checked = Boolean(config.includeImages);
+      $('wikilinks').checked = config.wikilinks !== false;
+      if (config.mode) $('mode').value = config.mode;
+
+      $('singleBtn').addEventListener('click', () => {
+        const url = $('singleUrl').value.trim();
+        if (!url) return message($('setupMsg'), 'Enter a URL to capture.', 'err');
+        startCapture([url]);
+      });
+
+      // Keep the scope in step with the URL until the user edits it themselves.
+      const deriveScope = (raw) => {
+        try {
+          const segments = new URL(raw).pathname.split('/').filter(Boolean);
+          segments.pop();
+          return segments.length ? `/${segments.join('/')}/` : '/';
+        } catch {
+          return '';
+        }
+      };
+      // Per-session, NOT seeded from config: a saved scope must not permanently
+      // pin the field, or changing the start URL silently re-crawls the old section.
+      let scopeTouched = false;
+      $('scope').value = config.scope || deriveScope($('startUrl').value.trim());
+      $('scope').addEventListener('input', () => (scopeTouched = true));
+      $('startUrl').addEventListener('input', () => {
+        if (!scopeTouched) $('scope').value = deriveScope($('startUrl').value.trim());
+      });
+
+      $('discoverBtn').addEventListener('click', async () => {
+        message($('setupMsg'), '');
+        $('discoverLog').hidden = false;
+        $('discoverLog').innerHTML = '';
+        $('discoverBtn').disabled = true;
+        $('cancelDiscover').hidden = false;
+        try {
+          await api('/api/discover', {
+            startUrl: $('startUrl').value.trim(),
+            dest: $('dest').value.trim(),
+            scope: $('scope').value.trim(),
+            cap: Number($('cap').value),
+          });
+        } catch (err) {
+          message($('setupMsg'), err.message, 'err');
+          $('discoverBtn').disabled = false;
+          $('cancelDiscover').hidden = true;
+        }
+      });
+
+      $('cancelDiscover').addEventListener('click', () => api('/api/cancel', {}));
+      $('backBtn').addEventListener('click', () => showStep(1));
+      $('doneBtn').addEventListener('click', () => {
+        $('discoverBtn').disabled = false;
+        showStep(1);
+      });
+
+      // ---- review ---------------------------------------------------------
+      const leafName = (url) => new URL(url).pathname.split('/').filter(Boolean).pop() ?? '/';
+
+      function buildTree(items) {
+        const root = { children: new Map(), pages: [] };
+        for (const item of items) {
+          const segments = new URL(item.url).pathname.split('/').filter(Boolean).slice(0, -1);
+          let node = root;
+          for (const segment of segments) {
+            if (!node.children.has(segment)) node.children.set(segment, { children: new Map(), pages: [] });
+            node = node.children.get(segment);
+          }
+          node.pages.push(item);
+        }
+        return root;
+      }
+
+      const countPages = (node) =>
+        node.pages.length + [...node.children.values()].reduce((sum, child) => sum + countPages(child), 0);
+
+      const indent = (depth) => `padding-left:${10 + depth * 18}px`;
+
+      /** Flatten the tree into table rows, each tagged with its nesting depth. */
+      function renderRows(node, name, depth, out) {
+        if (name !== null) {
+          const tr = document.createElement('tr');
+          tr.className = 'group';
+          tr.dataset.depth = String(depth);
+          tr.innerHTML =
+            `<td class="chk"><input type="checkbox" data-folder /></td>` +
+            `<td colspan="3" style="${indent(depth)}">` +
+            `<button class="twist" type="button" aria-expanded="true" aria-label="Collapse ${esc(name)}">&#9654;</button>` +
+            `<span>${esc(name)}</span><span class="count">${countPages(node)}</span></td>`;
+          tr.querySelector('.twist').addEventListener('click', () => toggleGroup(tr));
+          tr.querySelector('input[data-folder]').addEventListener('change', (e) => {
+            for (const box of descendantBoxes(tr)) {
+              if (!box.closest('tr').hasAttribute('data-excluded')) box.checked = e.target.checked;
+            }
+            refresh();
+          });
+          out.push(tr);
+        }
+
+        // Folders and pages interleave alphabetically. Drawing all folders first
+        // strands a section's own pages below its sub-groups, which reads as a
+        // list that got cut off mid-scroll.
+        const inner = name === null ? 0 : depth + 1;
+        const entries = [
+          ...[...node.children].map(([childName, child]) => ({ name: childName, child })),
+          ...node.pages.map((item) => ({ name: leafName(item.url), item })),
+        ].sort((a, b) => a.name.localeCompare(b.name));
+
+        for (const entry of entries) {
+          if (entry.child) {
+            renderRows(entry.child, entry.name, inner, out);
+            continue;
+          }
+          const { item } = entry;
+          const href = webUrl(item.url);
+          const tr = document.createElement('tr');
+          tr.dataset.depth = String(inner);
+          tr.innerHTML =
+            `<td class="chk"><input type="checkbox" data-url="${esc(item.url)}" ${item.suggested && !item.captured ? 'checked' : ''} /></td>` +
+            `<td class="page-name" style="${indent(inner)}">${esc(entry.name)}</td>` +
+            `<td class="url">` +
+            (href
+              ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer" title="${esc(item.url)}">${esc(item.url)}</a>`
+              : `<span title="${esc(item.url)}">${esc(item.url)}</span>`) +
+            `</td>` +
+            `<td class="status">${item.captured ? '<span class="tag">Already saved</span>' : ''}</td>`;
+          tr.querySelector('input').addEventListener('change', refresh);
+          out.push(tr);
+        }
+        return out;
+      }
+
+      /** Rows below `group` that sit deeper than it, i.e. everything it contains. */
+      function* descendants(group) {
+        const depth = Number(group.dataset.depth);
+        for (let row = group.nextElementSibling; row; row = row.nextElementSibling) {
+          if (Number(row.dataset.depth) <= depth) return;
+          yield row;
+        }
+      }
+      const descendantBoxes = (group) =>
+        [...descendants(group)].map((r) => r.querySelector('input[data-url]')).filter(Boolean);
+
+      function toggleGroup(group) {
+        const depth = Number(group.dataset.depth);
+        const collapsed = group.classList.toggle('collapsed');
+        group.querySelector('.twist').setAttribute('aria-expanded', String(!collapsed));
+
+        let row = group.nextElementSibling;
+        while (row && Number(row.dataset.depth) > depth) {
+          row.hidden = collapsed;
+          // A nested folder the user collapsed themselves stays collapsed, so skip
+          // past its rows rather than re-showing them on the way through.
+          if (!collapsed && row.classList.contains('collapsed')) {
+            const inner = Number(row.dataset.depth);
+            row = row.nextElementSibling;
+            while (row && Number(row.dataset.depth) > inner) {
+              row.hidden = true;
+              row = row.nextElementSibling;
+            }
+            continue;
+          }
+          row = row.nextElementSibling;
+        }
+      }
+
+      function applyExcludes() {
+        const terms = $('excludeInput')
+          .value.split(',')
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean);
+        for (const box of document.querySelectorAll('input[data-url]')) {
+          const hit = terms.some((t) => box.dataset.url.toLowerCase().includes(t));
+          box.closest('tr').toggleAttribute('data-excluded', hit);
+          if (hit) box.checked = false;
+        }
+        refresh();
+      }
+
+      function refresh() {
+        for (const group of document.querySelectorAll('tr.group')) {
+          const boxes = descendantBoxes(group);
+          const on = boxes.filter((b) => b.checked).length;
+          const parent = group.querySelector('input[data-folder]');
+          parent.checked = on > 0 && on === boxes.length;
+          parent.indeterminate = on > 0 && on < boxes.length;
+        }
+        const n = document.querySelectorAll('input[data-url]:checked').length;
+        $('selCount').textContent = `${n} page${n === 1 ? '' : 's'} selected`;
+        $('captureBtn').disabled = n === 0;
+      }
+
+      const setAll = (predicate) => {
+        for (const box of document.querySelectorAll('input[data-url]')) {
+          box.checked = !box.closest('tr').hasAttribute('data-excluded') && predicate(box.dataset.url);
+        }
+        refresh();
+      };
+      $('selAll').addEventListener('click', () => setAll(() => true));
+      $('selNone').addEventListener('click', () => setAll(() => false));
+      $('selSuggested').addEventListener('click', () => {
+        const suggested = new Set(state.urls.filter((u) => u.suggested && !u.captured).map((u) => u.url));
+        setAll((url) => suggested.has(url));
+      });
+
+      let excludeTimer;
+      $('excludeInput').addEventListener('input', () => {
+        clearTimeout(excludeTimer);
+        excludeTimer = setTimeout(applyExcludes, 160);
+      });
+
+      // ---- capture --------------------------------------------------------
+      const counts = { saved: 0, updated: 0, skipped: 0, failed: 0 };
+      const counterId = (key) => `n${key[0].toUpperCase()}${key.slice(1)}`;
+
+      async function startCapture(urls) {
+        state.queue = urls;
+        state.failed = [];
+        Object.assign(counts, { saved: 0, updated: 0, skipped: 0, failed: 0 });
+        for (const key of Object.keys(counts)) $(counterId(key)).textContent = 0;
+        $('nLeft').textContent = urls.length;
+        $('results').innerHTML = '';
+        $('advice').hidden = true;
+        $('runStatus').textContent = 'Working…';
+        $('cancelRun').hidden = false;
+        $('retryFailed').hidden = true;
+        $('doneBtn').hidden = true;
+        showStep(3);
+        try {
+          await api('/api/capture', {
+            urls,
+            dest: $('dest').value.trim(),
+            includeImages: $('includeImages').checked,
+            mode: $('mode').value,
+            wikilinks: $('wikilinks').checked,
+          });
+        } catch (err) {
+          $('runStatus').textContent = err.message;
+          $('cancelRun').hidden = true;
+          $('doneBtn').hidden = false;
+        }
+      }
+
+      $('captureBtn').addEventListener('click', () =>
+        startCapture([...document.querySelectorAll('input[data-url]:checked')].map((b) => b.dataset.url)),
+      );
+      $('cancelRun').addEventListener('click', () => api('/api/cancel', {}));
+      $('retryFailed').addEventListener('click', () => startCapture(state.failed));
+
+      // ---- server events --------------------------------------------------
+      // EventSource retries silently forever, so surface the outage rather than
+      // leaving the page looking alive while nothing is listening.
+      const stream = new EventSource('/api/events');
+      stream.onopen = () => ($('conn').hidden = true);
+      stream.onerror = () => ($('conn').hidden = false);
+      stream.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'log') {
+          const line = document.createElement('div');
+          line.textContent = data.message;
+          $('discoverLog').append(line);
+          $('discoverLog').scrollTop = $('discoverLog').scrollHeight;
+        }
+
+        if (data.type === 'discovered') {
+          state.urls = data.urls;
+          $('discoverBtn').disabled = false;
+          $('cancelDiscover').hidden = true;
+          if (data.urls.length === 0) {
+            message($('setupMsg'), 'No pages found. Check the URL, or the site may block crawlers.', 'err');
+            return;
+          }
+          $('reviewTitle').textContent = `Review pages — ${data.urls.length} found`;
+          $('rows').replaceChildren(...renderRows(buildTree(data.urls), null, -1, []));
+          $('listEnd').textContent =
+            `end of list — ${data.urls.length} page${data.urls.length === 1 ? '' : 's'} found`;
+          applyExcludes();
+          showStep(2);
+        }
+
+        if (data.type === 'result') {
+          counts[data.status] = (counts[data.status] ?? 0) + 1;
+          if (data.status === 'failed') state.failed.push(data.url);
+          for (const key of Object.keys(counts)) $(counterId(key)).textContent = counts[key];
+          const done = counts.saved + counts.updated + counts.skipped + counts.failed;
+          $('nLeft').textContent = Math.max(0, state.queue.length - done);
+          const wrote = data.status === 'saved' || data.status === 'updated';
+          const isThin = wrote && data.words < 200 && data.links >= 5;
+          const row = document.createElement('div');
+          row.className = `r ${data.status}${isThin ? ' thin' : ''}`;
+          row.innerHTML =
+            `<span class="pill">${esc(data.status)}</span>` +
+            `<span class="what">${data.error ? `${esc(data.url)} — ${esc(data.error)}` : esc(data.file)}</span>` +
+            (wrote
+              ? `<span class="words">${data.rendered ? 'rendered · ' : ''}${data.words} words${isThin ? ' · link list' : ''}</span>`
+              : '');
+          $('results').prepend(row);
+        }
+
+        if (data.type === 'finished') {
+          const a = data.advice;
+          $('advice').hidden = !a;
+          if (a) {
+            $('advice').innerHTML =
+              `<strong>${a.thin} of ${a.total} pages are link lists</strong>, not articles — ` +
+              `median ${a.medianWords} words. These are the site's tables of contents.` +
+              (a.suggestion
+                ? ` The articles they link to live under <code>${esc(a.suggestion)}</code> — ` +
+                  `run again with that as your <strong>Limit to path</strong>.`
+                : '');
+          }
+          const parts = [`${data.saved} saved`];
+          if (data.updated) parts.push(`${data.updated} updated`);
+          parts.push(`${data.skipped} already there`, `${data.failed} failed`);
+          if (data.linked?.linksRewritten) {
+            parts.push(`${data.linked.linksRewritten} links wikilinked across ${data.linked.filesChanged} notes`);
+          }
+          $('runStatus').textContent = `Done — ${parts.join(', ')}.`;
+          $('cancelRun').hidden = true;
+          $('doneBtn').hidden = false;
+          $('retryFailed').hidden = state.failed.length === 0;
+        }
+
+        if (data.type === 'error') {
+          message($('setupMsg'), data.message, 'err');
+          $('runStatus').textContent = data.message;
+          $('discoverBtn').disabled = false;
+          $('cancelDiscover').hidden = true;
+          $('cancelRun').hidden = true;
+          $('doneBtn').hidden = false;
+        }
+      };
+    </script>
+  </body>
+</html>

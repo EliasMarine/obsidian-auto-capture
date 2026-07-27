@@ -1,0 +1,10 @@
+node_modules
+npm-debug.log
+.git
+.DS_Store
+# Host-specific: the container gets its destination from OAC_DEFAULT_DEST instead.
+config.json
+test.js
+README.md
+Dockerfile
+docker-compose.yml
