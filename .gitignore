@@ -10,4 +10,9 @@ mockups/
 *.bak
 screenshots/*.tmp.png
 
+# Local agent/editor state
+.claude/
+.vscode/
+.idea/
+
 .DS_Store

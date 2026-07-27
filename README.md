@@ -58,11 +58,24 @@ docker compose up -d
 Images are published to `ghcr.io/eliasmarine/obsidian-auto-capture` for `linux/amd64`
 and `linux/arm64`.
 
+To upgrade, both steps are required:
+
+```bash
+docker compose pull
+docker compose up -d --force-recreate
+```
+
+`--force-recreate` is not optional. Compose decides whether to replace a container by
+comparing its config, and `image: …:latest` is the same string before and after a pull —
+so a plain `up -d` reports `Running` and leaves the old image in place. Same reason
+`docker compose restart` won't pick up an edited `.env`: it restarts the process, it
+doesn't re-read `env_file`. Use `up -d --force-recreate` after changing `OBSIDIAN_VAULT` too.
+
 Or build it yourself from a clone:
 
 ```bash
 cp .env.example .env      # point OBSIDIAN_VAULT at your vault folder
-docker compose up -d
+docker compose up -d --build
 ```
 
 Same URL. The published port is bound to `127.0.0.1`, so it isn't exposed to your network.
