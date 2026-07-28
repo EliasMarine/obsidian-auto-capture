@@ -9,7 +9,7 @@ import { buildNote } from './capture.js';
 import { headingAnchors } from './anchors.js';
 import { lineDiff } from './diff.js';
 import { renderChangelog } from './changelog.js';
-import { buildMaps } from './moc.js';
+import { buildMaps, writeMaps } from './moc.js';
 import { isSuggested, scopeFromUrl } from './discover.js';
 import { normalizeUrl, resolveInside, sanitizeSegment, siteFolder, uniquePath, urlToRelPath, yamlValue } from './paths.js';
 
@@ -310,6 +310,97 @@ test('buildMaps ranks hubs, flags orphans, and never overwrites a real note', ()
     prefix: 'raw',
   });
   assert.notEqual(collide[0].file, 'site.com/_map.md', 'generated map steps aside');
+});
+
+test('a heading id that collides with Object.prototype is still recorded', () => {
+  // A hostile — or merely unlucky — page can name a heading "constructor".
+  const { document } = parseHTML(`<html><body>
+    <h2 id="constructor">Constructor</h2>
+    <h2 id="toString">To String</h2>
+    <h2 id="__proto__">Proto</h2>
+    <h2 id="hasOwnProperty">Has Own</h2>
+  </body></html>`);
+
+  const anchors = headingAnchors(document);
+  assert.equal(anchors.constructor, 'Constructor', 'inherited truthy value must not mask a real heading');
+  assert.equal(anchors.toString, 'To String');
+  assert.equal(anchors.hasOwnProperty, 'Has Own');
+  assert.equal(Object.getPrototypeOf(anchors), null, 'no prototype chain to inherit from');
+  // Must survive the round-trip through .crawl-index.json.
+  assert.equal(JSON.parse(JSON.stringify(anchors)).constructor, 'Constructor');
+});
+
+test('a fragment naming an inherited property does not leak a function into a note', async () => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'oac-'));
+  const dest = path.join(vault, 'raw');
+  await fs.mkdir(path.join(dest, 'site.com'), { recursive: true });
+
+  await fs.writeFile(
+    path.join(dest, 'site.com', 'A.md'),
+    'See [docs](https://site.com/b#toString) and [more](https://site.com/b#__proto__).\n',
+  );
+  await fs.writeFile(path.join(dest, 'site.com', 'B.md'), '# B\n');
+
+  // Note the empty anchors map — the target page has no heading by that name.
+  const index = new Map([
+    ['https://site.com/a', { file: 'site.com/A.md', hash: 'x' }],
+    ['https://site.com/b', { file: 'site.com/B.md', hash: 'y', anchors: {} }],
+  ]);
+
+  await linkCapturedPages({ destRoot: dest, vaultRoot: vault, index });
+  const out = await fs.readFile(path.join(dest, 'site.com', 'A.md'), 'utf8');
+
+  assert.doesNotMatch(out, /native code/, 'must not interpolate Object.prototype.toString');
+  assert.doesNotMatch(out, /\[object Object\]/);
+  assert.match(out, /\[\[raw\/site\.com\/B\|docs\]\]/, 'falls back to the note as a whole');
+
+  await fs.rm(vault, { recursive: true, force: true });
+});
+
+test('writeMaps refuses to write outside the destination', async () => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'oac-'));
+  const dest = path.join(vault, 'raw');
+  await fs.mkdir(dest, { recursive: true });
+
+  // The shape a tampered .crawl-index.json would take: `site` becomes "..".
+  const index = new Map([['https://site.com/a', { file: '../escaped.md', hash: '1' }]]);
+
+  await assert.rejects(
+    () => writeMaps({ destRoot: dest, vaultRoot: vault, index, inbound: new Map() }),
+    /outside destination/,
+  );
+  await assert.rejects(() => fs.access(path.join(vault, '_map.md')), 'nothing written above the destination');
+
+  await fs.rm(vault, { recursive: true, force: true });
+});
+
+test('a source URL containing brackets cannot forge a second link', () => {
+  const note = renderChangelog({
+    date: '2026-08-14',
+    prefix: 'raw',
+    changes: [
+      {
+        url: 'https://evil.test/a)[Security update required](https://phish.test/x)b',
+        file: 'x/A.md',
+        title: 'A',
+        added: ['x'],
+        removed: [],
+      },
+    ],
+  });
+  // The hostile text is still present — it is part of the URL. What matters is
+  // that the whole thing sits inside one angle-bracketed destination, so
+  // CommonMark cannot parse the inner "](…)" as a second link.
+  assert.match(
+    note,
+    /\[source\]\(<https:\/\/evil\.test\/a\)\[Security update required\]\(https:\/\/phish\.test\/x\)b>\)/,
+    'entire URL enclosed in a single <> destination',
+  );
+  // ">" is percent-encoded by the URL parser, so the single ">" on that line is
+  // the one closing the destination — nothing can terminate it early.
+  const sourceLine = note.split('\n').find((l) => l.includes('[source]'));
+  assert.equal(sourceLine.match(/>/g).length, 1, 'exactly one ">" — the destination terminator');
+  assert.equal(sourceLine.match(/\[source\]/g).length, 1, 'one source link, not two');
 });
 
 test('isSuggested unchecks the pages nobody wants clipped', () => {

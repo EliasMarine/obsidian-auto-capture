@@ -8,7 +8,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { yamlValue } from './paths.js';
+import { resolveInside, yamlValue } from './paths.js';
 
 const MAP_FILE = '_map.md';
 const FALLBACK_MAP_FILE = '_map (generated).md';
@@ -101,7 +101,9 @@ export async function writeMaps({ destRoot, vaultRoot, index, inbound }) {
   const maps = buildMaps({ index, inbound, prefix });
 
   for (const map of maps) {
-    const abs = path.join(destRoot, map.file);
+    // The site folder comes from the index file on disk, which this process
+    // doesn't own — same guard every other write in the codebase uses.
+    const abs = resolveInside(destRoot, map.file);
     await fs.mkdir(path.dirname(abs), { recursive: true });
     await fs.writeFile(abs, map.body, 'utf8');
   }

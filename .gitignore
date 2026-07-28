@@ -14,5 +14,6 @@ screenshots/*.tmp.png
 .claude/
 .vscode/
 .idea/
+security-reviews/
 
 .DS_Store

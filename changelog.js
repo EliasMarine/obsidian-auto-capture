@@ -8,7 +8,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { yamlValue } from './paths.js';
+import { resolveInside, yamlValue } from './paths.js';
 import { lineDiff } from './diff.js';
 
 export const CHANGELOG_DIR = '_changelog';
@@ -71,7 +71,11 @@ export function renderChangelog({ date, prefix, changes }) {
       lines.push(
         `### ${wikilink(prefix, change.file, change.title)}`,
         '',
-        `+${added.length} −${removed.length} · [source](${change.url})`,
+        // Angle-bracketed: a crawled URL may contain ")" or "[" — the WHATWG
+        // path encode set leaves both alone — and would otherwise close the
+        // link early and let the page append one of its own. ">" is encoded,
+        // so it cannot terminate this form.
+        `+${added.length} −${removed.length} · [source](<${change.url}>)`,
         '',
       );
       if (added.length || removed.length) {
@@ -124,7 +128,8 @@ export async function writeChangelog({ destRoot, vaultRoot, changes, date = toda
 
   const prefix = path.relative(vaultRoot, destRoot).split(path.sep).filter(Boolean).join('/');
   const file = path.join(CHANGELOG_DIR, `${date}.md`);
-  const abs = path.join(destRoot, file);
+  // `date` is a parameter, so guard the sink rather than trusting every caller.
+  const abs = resolveInside(destRoot, file);
   const note = renderChangelog({ date, prefix, changes });
 
   await fs.mkdir(path.dirname(abs), { recursive: true });

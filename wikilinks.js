@@ -19,6 +19,13 @@ const countInbound = (inbound, file) => {
   if (file) inbound.set(file, (inbound.get(file) ?? 0) + 1);
 };
 
+/** An own, string-valued property — never anything reached through the prototype. */
+const ownString = (map, key) => {
+  if (!map || !Object.hasOwn(map, key)) return null;
+  const value = map[key];
+  return typeof value === 'string' ? value : null;
+};
+
 /**
  * Rewrite links between captured pages into Obsidian [[wikilinks]].
  *
@@ -83,7 +90,10 @@ export async function linkCapturedPages({ destRoot, vaultRoot, index }) {
 
       // An unknown fragment means the anchor isn't a heading we can link to —
       // land on the note rather than inventing a heading that isn't there.
-      const heading = fragment ? anchorsForUrl.get(url)?.[fragment] : null;
+      // Own properties only: the map is rebuilt by JSON.parse on later runs, so
+      // it has a prototype again, and `#toString` would otherwise resolve to an
+      // inherited function and be interpolated into the note.
+      const heading = fragment ? ownString(anchorsForUrl.get(url), fragment) : null;
       const destination = heading ? `${target}#${heading}` : target;
       const alias = cleanLabel(label);
       const basename = target.split('/').pop();

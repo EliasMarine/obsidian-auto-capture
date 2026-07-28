@@ -25,7 +25,11 @@ const clean = (text) =>
  *   <a id="rules"></a><h2>Rules</h2>              — the anchor precedes it
  */
 export function headingAnchors(document) {
-  const anchors = {};
+  // Prototype-less: ids come from the page, and on a plain object every
+  // Object.prototype key ("constructor", "toString", …) reads back truthy —
+  // which silently dropped real headings named that, and made lookups on the
+  // other side return an inherited function.
+  const anchors = Object.create(null);
 
   for (const heading of document.querySelectorAll(HEADINGS)) {
     const text = clean(heading.textContent);
