@@ -11,7 +11,7 @@ import path from 'node:path';
 import { resolveInside, yamlValue } from './paths.js';
 import { lineDiff } from './diff.js';
 
-export const CHANGELOG_DIR = '_changelog';
+const CHANGELOG_DIR = '_changelog';
 // A changelog is a summary. Anyone who wants the full text opens the note.
 const MAX_LINES_SHOWN = 6;
 const MAX_LINE_LENGTH = 220;
@@ -123,12 +123,14 @@ export async function diffAgainstDisk(absPath, nextBody) {
  * Write the dated changelog note. Returns null when nothing changed, so a
  * no-op re-crawl doesn't litter the vault with empty notes.
  */
-export async function writeChangelog({ destRoot, vaultRoot, changes, date = today(), now = clock() }) {
+export async function writeChangelog({ destRoot, vaultRoot, changes }) {
   if (!changes?.length) return null;
+  const date = today();
 
   const prefix = path.relative(vaultRoot, destRoot).split(path.sep).filter(Boolean).join('/');
   const file = path.join(CHANGELOG_DIR, `${date}.md`);
-  // `date` is a parameter, so guard the sink rather than trusting every caller.
+  // Same guard every other write uses, so this doesn't become a traversal the
+  // day someone threads a caller-supplied date through it.
   const abs = resolveInside(destRoot, file);
   const note = renderChangelog({ date, prefix, changes });
 
@@ -139,7 +141,7 @@ export async function writeChangelog({ destRoot, vaultRoot, changes, date = toda
   const existing = await fs.readFile(abs, 'utf8').catch(() => null);
   if (existing) {
     const body = note.replace(/^---\n[\s\S]*?\n---\n/, '').replace(/^#[^\n]*\n/m, '');
-    await fs.writeFile(abs, `${existing.trimEnd()}\n\n---\n\n## Later run — ${now}\n${body}`, 'utf8');
+    await fs.writeFile(abs, `${existing.trimEnd()}\n\n---\n\n## Later run — ${clock()}\n${body}`, 'utf8');
   } else {
     await fs.writeFile(abs, note, 'utf8');
   }
@@ -147,14 +149,8 @@ export async function writeChangelog({ destRoot, vaultRoot, changes, date = toda
   return { file, changed: changes.filter((c) => !c.firstSeen).length, added: changes.filter((c) => c.firstSeen).length };
 }
 
-function clock() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+// en-CA and en-GB are the locales whose short formats are already YYYY-MM-DD
+// and HH:MM. Both stay on the machine's clock, which is what a local tool wants.
+const clock = () => new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-export function today() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
+export const today = () => new Date().toLocaleDateString('en-CA');

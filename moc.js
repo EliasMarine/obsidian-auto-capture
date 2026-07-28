@@ -16,7 +16,6 @@ const FALLBACK_MAP_FILE = '_map (generated).md';
 const MIN_HUB_LINKS = 2;
 const MAX_HUBS = 15;
 
-const noteName = (file) => file.split('/').pop().replace(/\.md$/, '');
 const wikilink = (prefix, file) => `[[${`${prefix ? `${prefix}/` : ''}${file}`.replace(/\.md$/, '')}]]`;
 
 /** Group captured notes by their site folder — the first path segment. */
@@ -110,5 +109,3 @@ export async function writeMaps({ destRoot, vaultRoot, index, inbound }) {
 
   return { maps: maps.length, files: maps.map((m) => m.file) };
 }
-
-export { noteName };

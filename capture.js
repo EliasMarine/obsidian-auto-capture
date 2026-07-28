@@ -7,7 +7,7 @@ import { fetchText } from './fetcher.js';
 import { resolveInside, uniquePath, urlToRelPath, yamlValue } from './paths.js';
 import { renderHtml } from './render.js';
 import { headingAnchors } from './anchors.js';
-import { diffAgainstDisk } from './changelog.js';
+import { diffAgainstDisk, today } from './changelog.js';
 
 const INDEX_FILE = '.crawl-index.json';
 
@@ -69,12 +69,6 @@ function indexPageAdvice(results) {
   const words = thin.map((r) => r.words).sort((a, b) => a - b);
   return { thin: thin.length, total: saved.length, medianWords: words[Math.floor(words.length / 2)], suggestion };
 }
-
-const today = () => {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-};
 
 /** Obsidian Web Clipper's default note template. */
 export function buildNote(result, sourceUrl) {
