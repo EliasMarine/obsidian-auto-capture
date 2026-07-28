@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { normalizeUrl, resolveInside } from './paths.js';
+import { normalizeUrl, resolveInside, wikilinkLabel } from './paths.js';
 
 const MARKDOWN_LINK = /\[([^\]\n]*)\]\((https?:\/\/[^)\s]+)\)/g;
 const WIKILINK = /\[\[([^\]\n]+)\]\]/g;
@@ -11,9 +11,6 @@ const FENCED_BLOCK = /```[\s\S]*?```|~~~[\s\S]*?~~~/g;
 // cannot collide with real page text.
 const NUL = String.fromCharCode(0);
 const MASKED = new RegExp(`${NUL}(\\d+)${NUL}`, 'g');
-
-/** Wikilink aliases can't contain the characters that delimit them. */
-const cleanLabel = (label) => label.replace(/[|[\]]/g, '').trim();
 
 const countInbound = (inbound, file) => {
   if (file) inbound.set(file, (inbound.get(file) ?? 0) + 1);
@@ -95,7 +92,7 @@ export async function linkCapturedPages({ destRoot, vaultRoot, index }) {
       // inherited function and be interpolated into the note.
       const heading = fragment ? ownString(anchorsForUrl.get(url), fragment) : null;
       const destination = heading ? `${target}#${heading}` : target;
-      const alias = cleanLabel(label);
+      const alias = wikilinkLabel(label);
       const basename = target.split('/').pop();
       return alias && alias !== basename ? `[[${destination}|${alias}]]` : `[[${destination}]]`;
     });

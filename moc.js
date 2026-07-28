@@ -8,15 +8,13 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { resolveInside, yamlValue } from './paths.js';
+import { resolveInside, wikilink, yamlValue } from './paths.js';
 
 const MAP_FILE = '_map.md';
 const FALLBACK_MAP_FILE = '_map (generated).md';
 // Below this, "hubs" is just the whole list again.
 const MIN_HUB_LINKS = 2;
 const MAX_HUBS = 15;
-
-const wikilink = (prefix, file) => `[[${`${prefix ? `${prefix}/` : ''}${file}`.replace(/\.md$/, '')}]]`;
 
 /** Group captured notes by their site folder — the first path segment. */
 function bySite(index) {

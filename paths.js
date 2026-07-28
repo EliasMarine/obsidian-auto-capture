@@ -95,6 +95,24 @@ export function resolveInside(root, rel) {
   return abs;
 }
 
+/**
+ * Strip everything that would break out of a wikilink or a heading link.
+ * One definition, because three near-copies had drifted to different character
+ * classes and the weakest one decided how safe a label actually was.
+ */
+export const wikilinkLabel = (text) =>
+  String(text ?? '')
+    .replace(/[|[\]#^]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/** `[[prefix/file]]`, aliased only when the label says more than the note name does. */
+export function wikilink(prefix, file, label) {
+  const target = `${prefix ? `${prefix}/` : ''}${file}`.replace(/\.md$/, '');
+  const alias = wikilinkLabel(label);
+  return alias && alias !== target.split('/').pop() ? `[[${target}|${alias}]]` : `[[${target}]]`;
+}
+
 /** Always emit a double-quoted YAML scalar; JSON string escaping is valid YAML 1.2. */
 export function yamlValue(v) {
   if (v === undefined || v === null || v === '') return '';

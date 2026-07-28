@@ -8,13 +8,9 @@
  * while we still have the DOM — the extracted Markdown no longer carries ids.
  */
 
+import { wikilinkLabel } from './paths.js';
+
 const HEADINGS = 'h1, h2, h3, h4, h5, h6';
-// The characters that delimit a wikilink or a heading link can't appear inside one.
-const clean = (text) =>
-  String(text ?? '')
-    .replace(/[|[\]#^]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
 
 /**
  * Map every id a heading can be reached by to that heading's text.
@@ -32,7 +28,7 @@ export function headingAnchors(document) {
   const anchors = Object.create(null);
 
   for (const heading of document.querySelectorAll(HEADINGS)) {
-    const text = clean(heading.textContent);
+    const text = wikilinkLabel(heading.textContent);
     if (!text) continue;
 
     const ids = [heading.id];

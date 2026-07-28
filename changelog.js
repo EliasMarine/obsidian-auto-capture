@@ -8,28 +8,13 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { resolveInside, yamlValue } from './paths.js';
+import { resolveInside, wikilink, yamlValue } from './paths.js';
 import { lineDiff } from './diff.js';
 
 const CHANGELOG_DIR = '_changelog';
 // A changelog is a summary. Anyone who wants the full text opens the note.
 const MAX_LINES_SHOWN = 6;
 const MAX_LINE_LENGTH = 220;
-
-// Page titles routinely contain the characters that delimit a wikilink —
-// "Installation | uv" is a real title from a real docs site.
-const cleanLabel = (label) =>
-  String(label ?? '')
-    .replace(/[|[\]#^]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-const wikilink = (prefix, file, label) => {
-  const target = `${prefix ? `${prefix}/` : ''}${file}`.replace(/\.md$/, '');
-  const name = target.split('/').pop();
-  const alias = cleanLabel(label);
-  return alias && alias !== name ? `[[${target}|${alias}]]` : `[[${target}]]`;
-};
 
 const excerpt = (lines, marker) =>
   lines.slice(0, MAX_LINES_SHOWN).map((line) => {
