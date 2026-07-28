@@ -3,8 +3,13 @@ import test from 'node:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { parseHTML } from 'linkedom';
 import { linkCapturedPages } from './wikilinks.js';
 import { buildNote } from './capture.js';
+import { headingAnchors } from './anchors.js';
+import { lineDiff } from './diff.js';
+import { renderChangelog } from './changelog.js';
+import { buildMaps } from './moc.js';
 import { isSuggested, scopeFromUrl } from './discover.js';
 import { normalizeUrl, resolveInside, sanitizeSegment, siteFolder, uniquePath, urlToRelPath, yamlValue } from './paths.js';
 
@@ -146,6 +151,154 @@ test('links between captured pages become wikilinks, everything else is left alo
   assert.equal(second.linksRewritten, 0, 'idempotent');
 
   await fs.rm(vault, { recursive: true, force: true });
+});
+
+test('headingAnchors maps every id a page can be deep-linked by', () => {
+  const { document } = parseHTML(`<html><body>
+    <h1 id="top">Overview</h1>
+    <h2 id="_firewall_rules">Firewall Rules</h2>
+    <h2><a id="legacy-anchor"></a>Legacy Anchor Style</h2>
+    <a id="preceding"></a><h3>Preceded By Anchor</h3>
+    <h2>No Id At All</h2>
+    <h2 id="messy">A | B [c] #d</h2>
+  </body></html>`);
+
+  const anchors = headingAnchors(document);
+  assert.equal(anchors.top, 'Overview');
+  assert.equal(anchors._firewall_rules, 'Firewall Rules');
+  assert.equal(anchors['legacy-anchor'], 'Legacy Anchor Style', 'anchor nested inside the heading');
+  assert.equal(anchors.preceding, 'Preceded By Anchor', 'anchor immediately before the heading');
+  assert.equal(anchors.messy, 'A B c d', 'characters that would break a wikilink are stripped');
+  assert.equal(Object.keys(anchors).length, 5, 'headings with no id contribute nothing');
+});
+
+test('deep links survive as [[note#heading]]', async () => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'oac-'));
+  const dest = path.join(vault, 'raw');
+  await fs.mkdir(path.join(dest, 'site.com'), { recursive: true });
+
+  await fs.writeFile(
+    path.join(dest, 'site.com', 'A.md'),
+    [
+      'Jump to [the rules](https://site.com/b#_firewall_rules).',
+      'Unknown [fragment](https://site.com/b#nope) degrades to the page.',
+      'Uncaptured [page](https://site.com/c#x) is left alone.',
+    ].join('\n'),
+  );
+  await fs.writeFile(path.join(dest, 'site.com', 'Page B.md'), '# B\n');
+
+  const index = new Map([
+    ['https://site.com/a', { file: 'site.com/A.md', hash: 'x' }],
+    [
+      'https://site.com/b',
+      { file: 'site.com/Page B.md', hash: 'y', anchors: { _firewall_rules: 'Firewall Rules' } },
+    ],
+  ]);
+
+  await linkCapturedPages({ destRoot: dest, vaultRoot: vault, index });
+  const out = await fs.readFile(path.join(dest, 'site.com', 'A.md'), 'utf8');
+
+  assert.match(out, /\[\[raw\/site\.com\/Page B#Firewall Rules\|the rules\]\]/, 'known anchor becomes a heading link');
+  assert.match(out, /\[\[raw\/site\.com\/Page B\|fragment\]\]/, 'unknown anchor falls back to the whole note');
+  assert.match(out, /\[page\]\(https:\/\/site\.com\/c#x\)/, 'uncaptured page keeps its plain link');
+
+  await fs.rm(vault, { recursive: true, force: true });
+});
+
+test('linkCapturedPages reports who links to whom', async () => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'oac-'));
+  const dest = path.join(vault, 'raw');
+  await fs.mkdir(path.join(dest, 'site.com'), { recursive: true });
+
+  await fs.writeFile(path.join(dest, 'site.com', 'A.md'), 'see [B](https://site.com/b)\n');
+  await fs.writeFile(path.join(dest, 'site.com', 'B.md'), 'also [B](https://site.com/b) and [C](https://site.com/c)\n');
+  await fs.writeFile(path.join(dest, 'site.com', 'C.md'), '# C\n');
+
+  const index = new Map([
+    ['https://site.com/a', { file: 'site.com/A.md', hash: '1' }],
+    ['https://site.com/b', { file: 'site.com/B.md', hash: '2' }],
+    ['https://site.com/c', { file: 'site.com/C.md', hash: '3' }],
+  ]);
+
+  const { inbound } = await linkCapturedPages({ destRoot: dest, vaultRoot: vault, index });
+  assert.equal(inbound.get('site.com/B.md'), 2, 'counts links from every note, including itself');
+  assert.equal(inbound.get('site.com/C.md'), 1);
+  assert.equal(inbound.get('site.com/A.md') ?? 0, 0, 'nothing links to A');
+
+  await fs.rm(vault, { recursive: true, force: true });
+});
+
+test('lineDiff counts what actually moved, duplicates included', () => {
+  assert.deepEqual(lineDiff('a\nb\nc', 'a\nb\nc'), { added: [], removed: [] });
+
+  const changed = lineDiff('a\nb\nold', 'a\nb\nnew\nextra');
+  assert.deepEqual(changed.removed, ['old']);
+  assert.deepEqual(changed.added, ['new', 'extra']);
+
+  // Three copies before, one after: two removals, not zero.
+  assert.deepEqual(lineDiff('x\nx\nx', 'x').removed, ['x', 'x']);
+  // Blank lines are noise in a changelog.
+  assert.deepEqual(lineDiff('a', '\n\na\n\n'), { added: [], removed: [] });
+});
+
+test('renderChangelog links every changed note and says what moved', () => {
+  const note = renderChangelog({
+    date: '2026-08-14',
+    prefix: 'raw',
+    changes: [
+      {
+        url: 'https://site.com/b',
+        file: 'site.com/Firewall.md',
+        title: 'Firewall',
+        added: ['A new rule about ports.'],
+        removed: ['The old rule.'],
+      },
+      { url: 'https://site.com/c', file: 'site.com/New.md', title: 'New', added: [], removed: [], firstSeen: true },
+    ],
+  });
+
+  assert.match(note, /^---\n/, 'is a real note with frontmatter');
+  assert.match(note, /type: changelog/);
+  assert.match(note, /\[\[raw\/site\.com\/Firewall\]\]/, 'links into the vault, not the web');
+  assert.match(note, /\+1 −1/, 'summarises the size of the change');
+  assert.match(note, /A new rule about ports\./);
+  assert.match(note, /The old rule\./);
+  assert.match(note, /## New pages/, 'first captures are listed separately from changes');
+  assert.doesNotMatch(note, /undefined/);
+});
+
+test('buildMaps ranks hubs, flags orphans, and never overwrites a real note', () => {
+  const index = new Map([
+    ['https://site.com/a', { file: 'site.com/A.md', hash: '1' }],
+    ['https://site.com/b', { file: 'site.com/docs/B.md', hash: '2' }],
+    ['https://site.com/c', { file: 'site.com/docs/C.md', hash: '3' }],
+    ['https://other.com/d', { file: 'other.com/D.md', hash: '4' }],
+  ]);
+  const inbound = new Map([
+    ['site.com/docs/B.md', 7],
+    ['site.com/A.md', 2],
+  ]);
+
+  const maps = buildMaps({ index, inbound, prefix: 'raw' });
+  assert.equal(maps.length, 2, 'one map per site folder');
+
+  const site = maps.find((m) => m.file === 'site.com/_map.md');
+  assert.match(site.body, /\[\[raw\/site\.com\/docs\/B\]\]/);
+  assert.match(site.body, /## Hubs/);
+  assert.match(site.body, /## Orphans/);
+  assert.ok(
+    site.body.indexOf('docs/B') < site.body.indexOf('A]]'),
+    'the most-linked page is listed first',
+  );
+  assert.match(site.body, /\[\[raw\/site\.com\/docs\/C\]\]/, 'a page nothing links to still appears');
+
+  // A captured page that already claims _map.md must win.
+  const collide = buildMaps({
+    index: new Map([['https://site.com/m', { file: 'site.com/_map.md', hash: '9' }]]),
+    inbound: new Map(),
+    prefix: 'raw',
+  });
+  assert.notEqual(collide[0].file, 'site.com/_map.md', 'generated map steps aside');
 });
 
 test('isSuggested unchecks the pages nobody wants clipped', () => {

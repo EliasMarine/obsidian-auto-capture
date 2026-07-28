@@ -6,6 +6,8 @@ import { Defuddle } from 'defuddle/node';
 import { fetchText } from './fetcher.js';
 import { resolveInside, uniquePath, urlToRelPath, yamlValue } from './paths.js';
 import { renderHtml } from './render.js';
+import { headingAnchors } from './anchors.js';
+import { diffAgainstDisk } from './changelog.js';
 
 const INDEX_FILE = '.crawl-index.json';
 
@@ -130,16 +132,22 @@ const contentHash = (text) => createHash('sha256').update(text).digest('hex').sl
  * useAsync:false keeps extraction local. Defuddle would otherwise POST the page to
  * third-party APIs when it finds nothing — we render it ourselves instead.
  */
-function extract(html, url, includeImages) {
+async function extract(html, url, includeImages) {
   const { document } = parseHTML(html);
+  // Heading ids have to be harvested here: Defuddle returns Markdown, and the
+  // ids a URL fragment points at only exist in the DOM.
+  const anchors = headingAnchors(document);
   // Images are never downloaded either way — this drops the remote ![](…) markup,
   // which otherwise renders in Obsidian and clutters a text archive.
-  return Defuddle(document, url, {
+  // Defuddle resolves a promise even with useAsync:false — awaiting here is what
+  // lets the anchors be merged in without clobbering the result.
+  const result = await Defuddle(document, url, {
     markdown: true,
     url,
     removeImages: !includeImages,
     useAsync: false,
   });
+  return result ? { ...result, anchors } : result;
 }
 
 /**
@@ -185,11 +193,23 @@ export async function capturePage(url, { destRoot, taken, index, includeImages =
   // Updates land back in the existing note; only new URLs claim a fresh path.
   const rel = knownFile || uniquePath(urlToRelPath(url, result.title), taken, urlToRelPath(url));
   const abs = resolveInside(destRoot, rel);
-  await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, buildNote(result, url), 'utf8');
+  const note = buildNote(result, url);
 
-  index.set(url, { file: rel, hash });
-  return { status: havePrevious ? 'updated' : 'saved', file: rel, rendered, ...stats };
+  // What the *site* changed, read off disk before we overwrite it. Only worth
+  // computing when a previous capture exists and its content actually moved.
+  const changed = havePrevious && known?.hash && known.hash !== hash ? await diffAgainstDisk(abs, note) : null;
+
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  await fs.writeFile(abs, note, 'utf8');
+
+  index.set(url, {
+    file: rel,
+    hash,
+    anchors: result.anchors ?? {},
+    firstSeen: known?.firstSeen ?? today(),
+    ...(changed ? { lastChanged: today() } : {}),
+  });
+  return { status: havePrevious ? 'updated' : 'saved', file: rel, rendered, changed, ...stats };
 }
 
 /** Run `worker` over items with a bounded number in flight. */
@@ -234,5 +254,22 @@ export async function captureAll(
   });
 
   await saveSoon();
-  return { results, advice: indexPageAdvice(results) };
+  return { results, advice: indexPageAdvice(results), changes: changeList(results) };
+}
+
+/**
+ * The subset of a run worth a changelog entry: pages the site changed, plus
+ * pages captured for the first time. A skip means nothing moved, so it says nothing.
+ */
+function changeList(results) {
+  return results
+    .filter((r) => r.status === 'saved' || (r.status === 'updated' && r.changed))
+    .map((r) => ({
+      url: r.url,
+      file: r.file,
+      title: r.title || '',
+      firstSeen: r.status === 'saved',
+      added: r.changed?.added ?? [],
+      removed: r.changed?.removed ?? [],
+    }));
 }

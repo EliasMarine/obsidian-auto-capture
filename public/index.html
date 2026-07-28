@@ -250,7 +250,15 @@
                   </label>
                   <label class="check">
                     <input id="wikilinks" type="checkbox" checked />
-                    <span>Link notes to each other<small>Rewrites links as [[wikilinks]].</small></span>
+                    <span>Link notes to each other<small>Rewrites links as [[wikilinks]], keeping #section anchors.</small></span>
+                  </label>
+                  <label class="check">
+                    <input id="buildMap" type="checkbox" checked />
+                    <span>Build a map note<small>Ranks hubs and flags orphans, per site.</small></span>
+                  </label>
+                  <label class="check">
+                    <input id="trackChanges" type="checkbox" checked />
+                    <span>Log what changed<small>Dated note listing pages the site edited since last run.</small></span>
                   </label>
                 </div>
               </div>
@@ -388,6 +396,8 @@
       if (config.cap) $('cap').value = config.cap;
       $('includeImages').checked = Boolean(config.includeImages);
       $('wikilinks').checked = config.wikilinks !== false;
+      $('buildMap').checked = config.buildMap !== false;
+      $('trackChanges').checked = config.trackChanges !== false;
       if (config.mode) $('mode').value = config.mode;
 
       $('singleBtn').addEventListener('click', () => {
@@ -621,6 +631,8 @@
             includeImages: $('includeImages').checked,
             mode: $('mode').value,
             wikilinks: $('wikilinks').checked,
+            buildMap: $('buildMap').checked,
+            trackChanges: $('trackChanges').checked,
           });
         } catch (err) {
           $('runStatus').textContent = err.message;
@@ -704,6 +716,8 @@
           if (data.linked?.linksRewritten) {
             parts.push(`${data.linked.linksRewritten} links wikilinked across ${data.linked.filesChanged} notes`);
           }
+          if (data.mapped?.maps) parts.push(`${data.mapped.maps} map note${data.mapped.maps === 1 ? '' : 's'}`);
+          if (data.changelog?.changed) parts.push(`${data.changelog.changed} pages changed upstream`);
           $('runStatus').textContent = `Done — ${parts.join(', ')}.`;
           $('cancelRun').hidden = true;
           $('doneBtn').hidden = false;

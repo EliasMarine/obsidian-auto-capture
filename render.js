@@ -9,6 +9,35 @@ const SKIP_TYPES = new Set(['image', 'font', 'media']);
 let browser = null;
 let launching = null;
 let unavailable = null;
+// Persistent-profile mode hands back a context, not a browser — it owns its
+// own single context and pages are opened directly on it.
+let persistent = null;
+
+/**
+ * Reuse a real Chrome profile, so pages behind a login capture with the session
+ * you already have. Requires that Chrome be fully quit: Chromium takes an
+ * exclusive lock on a profile directory.
+ *
+ * Point this at a COPY of the profile. It is your live browser identity —
+ * every cookie in it is sent to whatever the crawl reaches.
+ */
+async function launchPersistent(userDataDir) {
+  const failures = [];
+  for (const channel of [...CHANNELS, undefined]) {
+    try {
+      return await chromium.launchPersistentContext(userDataDir, {
+        ...(channel ? { channel } : {}),
+        headless: true,
+        userAgent: USER_AGENT,
+      });
+    } catch (err) {
+      failures.push(`${channel ?? 'bundled'}: ${err.message.split('\n')[0]}`);
+    }
+  }
+  throw new Error(
+    `could not open Chrome profile at ${userDataDir} — quit Chrome first, or copy the profile (${failures.join(' | ')})`,
+  );
+}
 
 async function launch() {
   const failures = [];
@@ -44,6 +73,31 @@ async function launch() {
   throw new Error(`no usable browser found (${failures.join(' | ')})`);
 }
 
+/**
+ * A context to open pages on. Ordinary mode makes a fresh, cookie-free context
+ * per page; profile mode reuses the one persistent context, because that
+ * context *is* the logged-in session.
+ */
+async function getContext() {
+  const profile = process.env.OAC_CHROME_PROFILE;
+  if (!profile) {
+    const instance = await getBrowser();
+    return { context: await instance.newContext({ userAgent: USER_AGENT }), disposable: true };
+  }
+
+  if (process.env.OAC_NO_RENDER) throw new Error('rendering disabled (OAC_NO_RENDER)');
+  if (unavailable) throw unavailable;
+  if (!persistent) {
+    try {
+      persistent = await launchPersistent(profile);
+    } catch (err) {
+      unavailable = err;
+      throw err;
+    }
+  }
+  return { context: persistent, disposable: false };
+}
+
 /** One browser per run — launching costs ~1.5s, each page after that ~0.3s. */
 async function getBrowser() {
   // Escape hatch: OAC_NO_RENDER=1 keeps this a pure HTTP tool, no browser launched.
@@ -70,12 +124,11 @@ async function getBrowser() {
  * Only worth calling when the plain HTTP response turned out to be an empty shell.
  */
 export async function renderHtml(url, { timeout = 30000 } = {}) {
-  const instance = await getBrowser();
   await throttle(new URL(url).origin);
+  const { context, disposable } = await getContext();
 
-  const context = await instance.newContext({ userAgent: USER_AGENT });
+  const page = await context.newPage();
   try {
-    const page = await context.newPage();
     await page.route('**/*', (route) =>
       SKIP_TYPES.has(route.request().resourceType()) ? route.abort() : route.continue(),
     );
@@ -85,14 +138,19 @@ export async function renderHtml(url, { timeout = 30000 } = {}) {
     await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
     return { url: page.url(), contentType: 'text/html', body: await page.content() };
   } finally {
-    await context.close().catch(() => {});
+    // The persistent context outlives the page — closing it would drop the session.
+    await page.close().catch(() => {});
+    if (disposable) await context.close().catch(() => {});
   }
 }
 
 /** Shut the browser down between jobs so Chrome isn't left running. */
 export async function closeBrowser() {
   const instance = browser;
+  const context = persistent;
   browser = null;
+  persistent = null;
   unavailable = null;
   if (instance) await instance.close().catch(() => {});
+  if (context) await context.close().catch(() => {});
 }

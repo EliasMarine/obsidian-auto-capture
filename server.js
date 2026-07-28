@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { discover } from './discover.js';
 import { captureAll, loadIndex } from './capture.js';
 import { linkCapturedPages } from './wikilinks.js';
+import { writeMaps } from './moc.js';
+import { writeChangelog } from './changelog.js';
 import { closeBrowser } from './render.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -143,7 +145,8 @@ const routes = {
 
   'POST /api/capture': async (req, res) => {
     if (job?.status === 'running') return json(res, 409, { error: 'A job is already running.' });
-    const { urls, dest, includeImages, mode, wikilinks } = await readJson(req);
+    const { urls, dest, includeImages, mode, wikilinks, buildMap: wantMap, trackChanges: wantChanges } =
+      await readJson(req);
     if (!Array.isArray(urls) || urls.length === 0) return json(res, 400, { error: 'No pages selected.' });
 
     const destCheck = await validateDest(dest);
@@ -151,11 +154,15 @@ const routes = {
 
     const captureMode = ['skip', 'update', 'overwrite'].includes(mode) ? mode : 'skip';
     const linkNotes = wikilinks !== false;
+    const buildMap = wantMap !== false;
+    const trackChanges = wantChanges !== false;
     await writeConfig({
       ...(await readConfig()),
       includeImages: Boolean(includeImages),
       mode: captureMode,
       wikilinks: linkNotes,
+      buildMap,
+      trackChanges,
     });
     const current = startJob('capture');
     json(res, 202, { started: true, total: urls.length });
@@ -167,16 +174,38 @@ const routes = {
       onResult: (result) => emit({ type: 'result', ...result }),
       shouldStop: () => current.cancelled,
     })
-      .then(async ({ results, advice }) => {
+      .then(async ({ results, advice, changes }) => {
         let linked = null;
+        let mapped = null;
         if (linkNotes && !current.cancelled) {
           emit({ type: 'log', message: 'linking captured pages to each other…' });
+          const index = await loadIndex(destCheck.dest);
           linked = await linkCapturedPages({
             destRoot: destCheck.dest,
             vaultRoot: destCheck.vault,
-            index: await loadIndex(destCheck.dest),
+            index,
+          }).catch(() => null);
+
+          // The map is only as good as the link graph, so it rides on the same pass.
+          if (linked && buildMap) {
+            mapped = await writeMaps({
+              destRoot: destCheck.dest,
+              vaultRoot: destCheck.vault,
+              index,
+              inbound: linked.inbound,
+            }).catch(() => null);
+          }
+        }
+
+        let changelog = null;
+        if (trackChanges && !current.cancelled) {
+          changelog = await writeChangelog({
+            destRoot: destCheck.dest,
+            vaultRoot: destCheck.vault,
+            changes,
           }).catch(() => null);
         }
+
         await closeBrowser();
         current.status = 'done';
         emit({
@@ -187,6 +216,8 @@ const routes = {
           failed: results.filter((r) => r.status === 'failed').length,
           advice,
           linked,
+          mapped,
+          changelog,
         });
       })
       .catch(async (err) => {
