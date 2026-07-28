@@ -164,10 +164,17 @@ export async function capturePage(url, { destRoot, taken, index, includeImages =
     return { status: 'skipped', file: knownFile, title: '' };
   }
 
-  const { body, contentType } = await fetchText(url);
+  const { body, contentType, url: servedUrl } = await fetchText(url);
   if (!/html/i.test(contentType)) throw new Error(`not HTML (${contentType || 'unknown type'})`);
 
-  let result = await extract(body, url, includeImages);
+  // Relative links must resolve against the URL the server actually served.
+  // The index key has had its trailing slash stripped (that's what makes /a and
+  // /a/ one page), and on a directory-style docs site that shifts every "../"
+  // up a level — so `../guides/` on /uv/getting-started became /guides/, matched
+  // nothing in the index, and the whole site came out unlinked.
+  const base = servedUrl || url;
+
+  let result = await extract(body, base, includeImages);
   let rendered = false;
 
   // Empty extraction means the server sent a JS shell. Re-fetch through a real
@@ -176,7 +183,8 @@ export async function capturePage(url, { destRoot, taken, index, includeImages =
   if (!result?.content?.trim()) {
     const page = await renderHtml(url).catch(() => null);
     if (page) {
-      result = await extract(page.body, url, includeImages);
+      // Same reasoning as above — the browser followed redirects too.
+      result = await extract(page.body, page.url || base, includeImages);
       rendered = true;
     }
   }

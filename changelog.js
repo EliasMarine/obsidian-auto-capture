@@ -16,10 +16,19 @@ export const CHANGELOG_DIR = '_changelog';
 const MAX_LINES_SHOWN = 6;
 const MAX_LINE_LENGTH = 220;
 
+// Page titles routinely contain the characters that delimit a wikilink —
+// "Installation | uv" is a real title from a real docs site.
+const cleanLabel = (label) =>
+  String(label ?? '')
+    .replace(/[|[\]#^]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
 const wikilink = (prefix, file, label) => {
   const target = `${prefix ? `${prefix}/` : ''}${file}`.replace(/\.md$/, '');
   const name = target.split('/').pop();
-  return label && label !== name ? `[[${target}|${label}]]` : `[[${target}]]`;
+  const alias = cleanLabel(label);
+  return alias && alias !== name ? `[[${target}|${alias}]]` : `[[${target}]]`;
 };
 
 const excerpt = (lines, marker) =>

@@ -267,6 +267,17 @@ test('renderChangelog links every changed note and says what moved', () => {
   assert.doesNotMatch(note, /undefined/);
 });
 
+test('a page title containing a pipe cannot break the changelog wikilink', () => {
+  // "Installation | uv" is a real title from docs.astral.sh.
+  const note = renderChangelog({
+    date: '2026-08-14',
+    prefix: 'raw',
+    changes: [{ url: 'https://x/i', file: 'x/Installation - uv.md', title: 'Installation | uv', added: ['a'], removed: [] }],
+  });
+  assert.match(note, /\[\[raw\/x\/Installation - uv\|Installation uv\]\]/);
+  assert.equal(note.match(/\[\[[^\]]*\]\]/g).every((l) => (l.match(/\|/g) ?? []).length <= 1), true);
+});
+
 test('buildMaps ranks hubs, flags orphans, and never overwrites a real note', () => {
   const index = new Map([
     ['https://site.com/a', { file: 'site.com/A.md', hash: '1' }],
